@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trình soạn thảo mã</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #2c2c2c;
+        }
+        .editor {
+            width: 80%;
+            height: 80%;
+            display: flex;
+            flex-direction: column;
+        }
+        textarea {
+            flex: 1;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            border: none;
+            padding: 10px;
+            resize: none;
+        }
+        .button {
+            text-align: right;
+            margin: 10px;
+        }
+        .button button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        .file-selector {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        select {
+            padding: 10px;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .custom-file-upload {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            display: inline-block;
+        }
+        .folder-nav {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="editor">
+        <div class="file-selector">
+            <select id="fileList" onchange="loadFile()">
+                <option value="">Chọn tệp</option>
+            </select>
+            <input type="text" id="filename" placeholder="Nhập tên tệp">
+            <label for="fileUpload" class="custom-file-upload">Tải lên</label>
+            <input id="fileUpload" type="file" onchange="uploadFile()"/>
+        </div>
+        <div class="folder-nav">
+            <button onclick="navigateTo('..')">Lên</button>
+            <span id="currentFolder">/</span>
+        </div>
+        <textarea id="code" placeholder="Viết mã của bạn tại đây..."></textarea>
+        <div class="button">
+            <button onclick="runCode()">Chạy</button>
+            <button onclick="saveCode()">Lưu</button>
+            <button onclick="downloadFile()">Tải xuống</button>
+            <button onclick="loadBackendCode()">Tải mã backend</button>
+            <button onclick="editBackend()">Lưu backend</button>
+            <button onclick="restartBackend()">Khởi động lại backend</button>
+        </div>
+    </div>
+    <script>
+        let currentFolder = '';
+
+        function runCode() {
+            const code = document.getElementById('code').value;
+            const newWindow = window.open();
+            newWindow.document.open();
+            newWindow.document.write(code);
+            newWindow.document.close();
+        }
+
+        function saveCode() {
+            const code = document.getElementById('code').value;
+            const filename = document.getElementById('filename').value;
+
+            if (!filename) {
+                alert('Vui lòng nhập tên tệp');
+                return;
+            }
+
+            fetch('/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ filename, content: code, folder: currentFolder })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadFileList();
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+            });
+        }
+
+        function loadFileList() {
+            fetch(`/files?folder=${currentFolder}`)
+            .then(response => response.json())
+            .then(files => {
+                const fileList = document.getElementById('fileList');
+                fileList.innerHTML = '<option value="">Chọn tệp</option>';
+                files.forEach(file => {
+                    const option = document.createElement('option');
+                    option.value = file.name;
+                    option.textContent = file.isDirectory ? `[THƯ MỤC] ${file.name}` : file.name;
+                    fileList.appendChild(option);
+                });
+                document.getElementById('currentFolder').textContent = `/${currentFolder}`;
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+            });
+        }
+
+        function loadFile() {
+            const fileList = document.getElementById('fileList');
+            const filename = fileList.value;
+
+            if (!filename) {
+                document.getElementById('code').value = '';
+                return;
+            }
+
+            if (filename.startsWith('[THƯ MỤC]')) {
+                currentFolder = path.join(currentFolder, filename.slice(10));
+                loadFileList();
+                return;
+            }
+
+            fetch(`/file?filename=${filename}&folder=${currentFolder}`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('code').value = data.content;
+                document.getElementById('filename').value = filename;
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+            });
+        }
+
+        function uploadFile() {
+            const fileInput = document.getElementById('fileUpload');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Vui lòng chọn tệp');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('folder', currentFolder);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadFileList();
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+            });
+        }
+
+        function downloadFile() {
+            const filename = document.getElementById('filename').value;
+
+            if (!filename) {
+                alert('Vui lòng nhập tên tệp');
+                return;
+            }
+
+            window.open(`/download?filename=${filename}&folder=${currentFolder}`, '_blank');
+        }
+
+        function navigateTo(folder) {
+            if (folder === '..') {
+                currentFolder = currentFolder.split('/').slice(0, -1).join('/');
+            } else {
+                currentFolder = folder;
+            }
+            loadFileList();
+        }
+
+        function loadBackendCode() {
+            fetch('/get-backend-code')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('code').value = data.content;
+                document.getElementById('filename').value = 'server.js';
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+            });
+        }
+
+        function editBackend() {
+            const code = document.getElementById('code').value;
+
+            if (!code) {
+                alert('Vui lòng nhập mã để cập nhật backend');
+                return;
+            }
+
+            fetch('/update-backend', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ content: code })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+            });
+        }
+
+        function restartBackend() {
+            fetch('/restart-server', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+            });
+        }
+
+        loadFileList();
+    </script>
+</body>
+</html>
